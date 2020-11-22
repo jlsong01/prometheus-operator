@@ -1,6 +1,6 @@
 <br>
 <div class="alert alert-info" role="alert">
-    <i class="fa fa-exclamation-triangle"></i><b> Note:</b> Starting with v0.12.0, Prometheus Operator requires use of Kubernetes v1.7.x and up.
+    <i class="fa fa-exclamation-triangle"></i><b> Note:</b> Starting with v0.39.0, Prometheus Operator requires use of Kubernetes v1.16.x and up.
 </div>
 
 # FAQ / Troubleshooting
@@ -17,7 +17,7 @@ clusterroles.rbac.authorization.k8s.io "prometheus-operator" is forbidden: attem
 <....>
 ````
 
-This is due to the way Container Engine checks permissions. From [Google Container Engine docs](https://cloud.google.com/container-engine/docs/role-based-access-control):
+This is due to the way Container Engine checks permissions. From [Google Kubernetes Engine docs](https://cloud.google.com/kubernetes-engine/docs/how-to/role-based-access-control):
 
 > Because of the way Container Engine checks permissions when you create a Role or ClusterRole, you must first create a RoleBinding that grants you all of the permissions included in the role you want to create.
 > An example workaround is to create a RoleBinding that gives your Google identity a cluster-admin role before attempting to create additional Role or ClusterRole permissions.
@@ -44,6 +44,9 @@ When creating/deleting/modifying `ServiceMonitor` objects it is sometimes not as
 A common problem related to `ServiceMonitor` identification by Prometheus is related to an incorrect tagging, that does not match the `Prometheus` custom resource definition scope, or lack of permission for the Prometheus `ServiceAccount` to *get, list, watch* `Services` and `Endpoints` from the target application being monitored. As a general guideline consider the diagram below, giving an example of a `Deployment` and `Service` called `my-app`, being monitored by Prometheus based on a `ServiceMonitor` named `my-service-monitor`:
 
 ![flow diagram](custom-metrics-elements.png)
+
+Note: The `ServiceMonitor` references a `Service` (not a `Deployment`, or a `Pod`), by labels *and* by the port name in the `Service`. This *port name* is optional in Kubernetes, but must be specified for the `ServiceMonitor` to work. It is not the same as the port name on the `Pod` or container, although it can be.
+
 
 #### Has my `ServiceMonitor` been picked up by Prometheus?
 
@@ -78,3 +81,49 @@ sed -e "s/- --address=127.0.0.1/- --address=0.0.0.0/" -i /etc/kubernetes/manifes
 sed -e "s/- --address=127.0.0.1/- --address=0.0.0.0/" -i /etc/kubernetes/manifests/kube-scheduler.yaml
 ```
 
+### Using textual port number instead of port name
+
+The ServiceMonitor expects to use the port name as defined on the Service. So, using the Service example from the
+diagram above, we have this Service definition:
+
+```
+kind: Service
+metadata:
+  labels:
+    k8s-app: my-app
+  name: my-app
+...
+  spec:
+    ports:
+      - name: metrics
+        port: 8080
+    selector:
+      k8s-app: my-app
+```
+
+We would then define the service monitor using `metrics` as the port not `"8080"`. E.g.
+
+**CORRECT**
+```
+kind: ServiceMonitor
+metadata:
+  name: my-app
+spec:
+...
+  endpoints:
+    - port: metrics
+```
+
+**INCORRECT**
+```
+kind: ServiceMonitor
+metadata:
+  name: my-app
+spec:
+...
+  endpoints:
+    - port: "8080"
+```
+
+The incorrect example will give an error along these lines `spec.endpoints.port in body must be of type string:
+"integer"`
